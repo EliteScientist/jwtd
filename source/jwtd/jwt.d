@@ -26,6 +26,7 @@ enum JWTAlgorithm : string {
 	RS384 = "RS384",
 	RS512 = "RS512",
 	ES256 = "ES256",
+	ES256K = "ES256K",
 	ES384 = "ES384",
 	ES512 = "ES512"
 }

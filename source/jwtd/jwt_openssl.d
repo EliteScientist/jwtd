@@ -299,14 +299,18 @@ version(UseOpenSSL) {
 			EC_KEY* eckey = getESPublicKey(curve_type, key);
 			scope(exit) EC_KEY_free(eckey);
 
-			ubyte* c = cast(ubyte*)signature.ptr;
-			ECDSA_SIG* sig = null;
-			sig = d2i_ECDSA_SIG(&sig, cast(const (ubyte)**)&c, cast(int) key.length);
-			if (sig is null) {
-				throw new Exception("Can't decode ECDSA signature.");
-			}
-			scope(exit) ECDSA_SIG_free(sig);
+			ubyte* signaturePointer = cast(ubyte*)signature.ptr;
 
+			ECDSA_SIG* sig = ECDSA_SIG_new();
+			scope(exit) ECDSA_SIG_free(sig);
+			
+			if (null == BN_bin2bn(sigPointer, 32, sig.r))
+				throw new Exception("Can't decode ECDSA signature.");
+
+
+			if (null == BN_bin2bn(sigPointer + 32, 32, sig.s))
+				throw new Exception("Can't decode ECDSA signature.");
+			
 			int ret =  ECDSA_do_verify(hash, hashLen, sig, eckey);
 			return ret == 1;
 		}
@@ -339,8 +343,17 @@ version(UseOpenSSL) {
 			case JWTAlgorithm.ES256:{
 				ubyte[] hash = new ubyte[SHA256_DIGEST_LENGTH];
 				SHA256(cast(const(ubyte)*)signing_input.ptr, signing_input.length, hash.ptr);
+				//return verify_es(NID_secp256k1, hash.ptr, SHA256_DIGEST_LENGTH );
+				return verify_es(NID_X9_62_prime256v1, hash.ptr, SHA256_DIGEST_LENGTH ); // The ES256 Spec uses the prime256v1 Curve
+			}
+
+			case JWTAlgorithm.ES256K: // Added ES256K to use the secp256k1 curve
+			{
+				ubyte[] hash = new ubyte[SHA256_DIGEST_LENGTH];
+				SHA256(cast(const(ubyte)*)signing_input.ptr, signing_input.length, hash.ptr);
 				return verify_es(NID_secp256k1, hash.ptr, SHA256_DIGEST_LENGTH );
 			}
+
 			case JWTAlgorithm.ES384:{
 				ubyte[] hash = new ubyte[SHA384_DIGEST_LENGTH];
 				SHA384(cast(const(ubyte)*)signing_input.ptr, signing_input.length, hash.ptr);
