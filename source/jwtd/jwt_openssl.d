@@ -299,7 +299,7 @@ version(UseOpenSSL) {
 			EC_KEY* eckey = getESPublicKey(curve_type, key);
 			scope(exit) EC_KEY_free(eckey);
 
-			ubyte* signaturePointer = cast(ubyte*)signature.ptr;
+			ubyte * sigPointer = cast(ubyte *) signature.ptr;
 
 			ECDSA_SIG* sig = ECDSA_SIG_new();
 			scope(exit) ECDSA_SIG_free(sig);
