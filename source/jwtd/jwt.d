@@ -203,6 +203,10 @@ unittest {
         foreach (algo, k; keys) {
             auto payload = JSONValue([ "claim" : "value" ]);
             const encoded = encode(payload, k.priv, algo);
+
+			import std.stdio;
+			writeln("Algo: " ~ algo);
+
             const decoded = decode(encoded, k.pub);
             assert(decoded == payload);
         }
@@ -342,7 +346,6 @@ unittest {
         assert(verify(rs256Token, public256));
 
         // es256
-
         string es256Token = encode(["language": "D"], es256_private, JWTAlgorithm.ES256);
         assert(verify(es256Token, es256_public));
 	}

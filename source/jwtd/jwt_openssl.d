@@ -151,9 +151,9 @@ version(UseOpenSSL) {
 
         assertThrown(getESPublicKey(0, "key"));
 
-        auto eckey = getESPublicKey(NID_secp256k1, es256_public);
+        auto eckey = getESPublicKey(NID_X9_62_prime256v1, es256_public);
         EC_KEY_free(eckey);
-        assertThrown(getESPublicKey(NID_secp256k1, null));
+        assertThrown(getESPublicKey(NID_X9_62_prime256v1, null));
     }
 
 	string sign(string msg, string key, JWTAlgorithm algo = JWTAlgorithm.HS256) {
@@ -162,16 +162,17 @@ version(UseOpenSSL) {
 		void sign_hs(const(EVP_MD)* evp, uint signLen) {
 			sign = new ubyte[signLen];
 
-			HMAC_CTX ctx;
-			scope(exit) HMAC_CTX_cleanup(&ctx);
-			HMAC_CTX_init(&ctx);
-			if(0 == HMAC_Init_ex(&ctx, key.ptr, cast(int)key.length, evp, null)) {
+			HMAC_CTX * ctx = HMAC_CTX_new();
+			scope(exit) HMAC_CTX_free(ctx);
+
+			HMAC_CTX_reset(ctx);
+			if(0 == HMAC_Init_ex(ctx, key.ptr, cast(int)key.length, evp, null)) {
 				throw new Exception("Can't initialize HMAC context.");
 			}
-			if(0 == HMAC_Update(&ctx, cast(const(ubyte)*)msg.ptr, cast(ulong)msg.length)) {
+			if(0 == HMAC_Update(ctx, cast(const(ubyte)*)msg.ptr, cast(ulong)msg.length)) {
 				throw new Exception("Can't update HMAC.");
 			}
-			if(0 == HMAC_Final(&ctx, cast(ubyte*)sign.ptr, &signLen)) {
+			if(0 == HMAC_Final(ctx, cast(ubyte*)sign.ptr, &signLen)) {
 				throw new Exception("Can't finalize HMAC.");
 			}
 		}
@@ -196,21 +197,47 @@ version(UseOpenSSL) {
 			}
 		}
 
-		void sign_es(uint curve_type, ubyte* hash, int hashLen) {
+		void sign_es(uint curve_type, ubyte* hash, int hashLen) 
+		{
 			EC_KEY* eckey = getESPrivateKey(curve_type, key);
 			scope(exit) EC_KEY_free(eckey);
 
 			ECDSA_SIG* sig = ECDSA_do_sign(hash, hashLen, eckey);
+
 			if(sig is null) {
 				throw new Exception("Digest sign failed.");
 			}
 			scope(exit) ECDSA_SIG_free(sig);
 
-			sign = new ubyte[ECDSA_size(eckey)];
+			int keySize		= ECDSA_size(eckey);
+			int sigPartSize	= hashLen; //(keySize - 8) / 2;
+
+			switch (algo)
+			{
+				case JWTAlgorithm.ES256:
+					sigPartSize	= 32;
+					break;
+
+				case JWTAlgorithm.ES384:
+					sigPartSize	= 48;
+					break;
+
+				case JWTAlgorithm.ES512:
+					sigPartSize	= 66;
+					break;
+				default:
+					break;
+			}
+		
+			sign = new ubyte[sigPartSize * 2];
 			ubyte* c = sign.ptr;
+			
+			BN_bn2bin(sig.r, c);
+			BN_bn2bin(sig.s, c + sigPartSize);						
+			/*
 			if(!i2d_ECDSA_SIG(sig, &c)) {
 				throw new Exception("Convert sign to DER format failed.");
-			}
+			}*/
 		}
 
 		switch(algo) {
@@ -250,9 +277,16 @@ version(UseOpenSSL) {
 			case JWTAlgorithm.ES256: {
 				ubyte[] hash = new ubyte[SHA256_DIGEST_LENGTH];
 				SHA256(cast(const(ubyte)*)msg.ptr, msg.length, hash.ptr);
+				sign_es(NID_X9_62_prime256v1, hash.ptr, SHA256_DIGEST_LENGTH);
+				break;
+			}
+			case JWTAlgorithm.ES256K: {
+				ubyte[] hash = new ubyte[SHA256_DIGEST_LENGTH];
+				SHA256(cast(const(ubyte)*)msg.ptr, msg.length, hash.ptr);
 				sign_es(NID_secp256k1, hash.ptr, SHA256_DIGEST_LENGTH);
 				break;
 			}
+
 			case JWTAlgorithm.ES384: {
 				ubyte[] hash = new ubyte[SHA384_DIGEST_LENGTH];
 				SHA384(cast(const(ubyte)*)msg.ptr, msg.length, hash.ptr);
@@ -299,18 +333,38 @@ version(UseOpenSSL) {
 			EC_KEY* eckey = getESPublicKey(curve_type, key);
 			scope(exit) EC_KEY_free(eckey);
 
+			int keySize		= ECDSA_size(eckey);
+			int sigPartSize	= hashLen; // (keySize - 8) / 2; //cast(int) signature.length / 2;
+
+			switch (algo)
+			{
+				case JWTAlgorithm.ES256:
+					sigPartSize	= 32;
+					break;
+
+				case JWTAlgorithm.ES384:
+					sigPartSize	= 48;
+					break;
+
+				case JWTAlgorithm.ES512:
+					sigPartSize	= 66;
+					break;
+
+				default:
+					break;
+			}
+
 			ubyte * sigPointer = cast(ubyte *) signature.ptr;
 
 			ECDSA_SIG* sig = ECDSA_SIG_new();
 			scope(exit) ECDSA_SIG_free(sig);
-			
-			if (null == BN_bin2bn(sigPointer, 32, sig.r))
+						
+			if (null == (sig.r = BN_bin2bn(sigPointer, sigPartSize, sig.r)))
 				throw new Exception("Can't decode ECDSA signature.");
 
-
-			if (null == BN_bin2bn(sigPointer + 32, 32, sig.s))
+			if (null == (sig.s = BN_bin2bn(sigPointer + sigPartSize, sigPartSize, sig.s)))
 				throw new Exception("Can't decode ECDSA signature.");
-			
+
 			int ret =  ECDSA_do_verify(hash, hashLen, sig, eckey);
 			return ret == 1;
 		}
@@ -378,3 +432,4 @@ unittest {
         assertThrown!VerifyException(verifySignature("signature", "signing_input", "key", cast(JWTAlgorithm)"bogus_algo"));
     }
 }
+
