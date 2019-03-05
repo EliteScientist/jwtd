@@ -1,5 +1,5 @@
 {
-  "name": "jwtd",
+  "name": "jwtd-es",
   "description": "D implementation of JSON Web Token.",
   "license": "MIT",
   "libs-windows": [ "libcrypto", "libssl" ],
