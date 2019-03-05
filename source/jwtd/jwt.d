@@ -203,10 +203,6 @@ unittest {
         foreach (algo, k; keys) {
             auto payload = JSONValue([ "claim" : "value" ]);
             const encoded = encode(payload, k.priv, algo);
-
-			import std.stdio;
-			writeln("Algo: " ~ algo);
-
             const decoded = decode(encoded, k.pub);
             assert(decoded == payload);
         }

@@ -177,9 +177,9 @@ version(UseOpenSSL) {
 			}
 		}
 
-		void sign_rs(ubyte* hash, int type, uint len, uint signLen) {
-			sign = new ubyte[len];
-
+		void sign_rs(ubyte* hash, int type, uint hashLen) 
+		{
+			
 			RSA* rsa_private = RSA_new();
 			scope(exit) RSA_free(rsa_private);
 
@@ -192,7 +192,11 @@ version(UseOpenSSL) {
 			if(rsa is null) {
 				throw new Exception("Can't create RSA key.");
 			}
-			if(0 == RSA_sign(type, hash, signLen, sign.ptr, &signLen, rsa_private)) {
+
+			uint len	= cast(uint) RSA_size(rsa_private);
+			sign		= new ubyte[len];
+
+			if(0 == RSA_sign(type, hash, hashLen, sign.ptr, &len, rsa_private)) {
 				throw new Exception("Can't sign RSA message digest.");
 			}
 		}
@@ -210,31 +214,22 @@ version(UseOpenSSL) {
 			scope(exit) ECDSA_SIG_free(sig);
 
 			int keySize		= ECDSA_size(eckey);
-			int sigPartSize	= hashLen; //(keySize - 8) / 2;
+			int sigPartSize	= (keySize - 8) / 2;
+					
+			uint rSize	= BN_num_bytes(sig.r);
+			uint sSize	= BN_num_bytes(sig.s);
 
-			switch (algo)
-			{
-				case JWTAlgorithm.ES256:
-					sigPartSize	= 32;
-					break;
-
-				case JWTAlgorithm.ES384:
-					sigPartSize	= 48;
-					break;
-
-				case JWTAlgorithm.ES512:
-					sigPartSize	= 66;
-					break;
-				default:
-					break;
-			}
-		
 			sign = new ubyte[sigPartSize * 2];
+
 			ubyte* c = sign.ptr;
+
+			int rPadding	= sigPartSize - rSize;
+			int sPadding	= sigPartSize - sSize;
 			
-			BN_bn2bin(sig.r, c);
-			BN_bn2bin(sig.s, c + sigPartSize);						
-			/*
+			BN_bn2bin(sig.r, c + rPadding);
+			BN_bn2bin(sig.s, c + (sigPartSize + sPadding));
+
+			/* Signature not in DER format. DER is not defined by JWT
 			if(!i2d_ECDSA_SIG(sig, &c)) {
 				throw new Exception("Convert sign to DER format failed.");
 			}*/
@@ -259,19 +254,19 @@ version(UseOpenSSL) {
 			case JWTAlgorithm.RS256: {
 				ubyte[] hash = new ubyte[SHA256_DIGEST_LENGTH];
 				SHA256(cast(const(ubyte)*)msg.ptr, msg.length, hash.ptr);
-				sign_rs(hash.ptr, NID_sha256, 256, SHA256_DIGEST_LENGTH);
+				sign_rs(hash.ptr, NID_sha256, SHA256_DIGEST_LENGTH);
 				break;
 			}
 			case JWTAlgorithm.RS384: {
 				ubyte[] hash = new ubyte[SHA384_DIGEST_LENGTH];
 				SHA384(cast(const(ubyte)*)msg.ptr, msg.length, hash.ptr);
-				sign_rs(hash.ptr, NID_sha384, 384, SHA384_DIGEST_LENGTH);
+				sign_rs(hash.ptr, NID_sha384, SHA384_DIGEST_LENGTH);
 				break;
 			}
 			case JWTAlgorithm.RS512: {
 				ubyte[] hash = new ubyte[SHA512_DIGEST_LENGTH];
 				SHA512(cast(const(ubyte)*)msg.ptr, msg.length, hash.ptr);
-				sign_rs(hash.ptr, NID_sha512, 512, SHA512_DIGEST_LENGTH);
+				sign_rs(hash.ptr, NID_sha512, SHA512_DIGEST_LENGTH);
 				break;
 			}
 			case JWTAlgorithm.ES256: {
@@ -310,7 +305,7 @@ version(UseOpenSSL) {
 
 	bool verifySignature(string signature, string signing_input, string key, JWTAlgorithm algo = JWTAlgorithm.HS256) {
 
-		bool verify_rs(ubyte* hash, int type, uint len, uint signLen) {
+		bool verify_rs(ubyte* hash, int type, uint hashLen) {
 			RSA* rsa_public = RSA_new();
 			scope(exit) RSA_free(rsa_public);
 
@@ -324,8 +319,10 @@ version(UseOpenSSL) {
 				throw new Exception("Can't create RSA key.");
 			}
 
-			ubyte[] sign = cast(ubyte[])signature;
-			int ret = RSA_verify(type, hash, signLen, sign.ptr, len, rsa_public);
+			ubyte[] sign	= cast(ubyte[])signature;
+			uint len		= cast(uint) RSA_size(rsa_public);
+
+			int ret = RSA_verify(type, hash, hashLen, sign.ptr, len, rsa_public);
 			return ret == 1;
 		}
 
@@ -334,25 +331,7 @@ version(UseOpenSSL) {
 			scope(exit) EC_KEY_free(eckey);
 
 			int keySize		= ECDSA_size(eckey);
-			int sigPartSize	= hashLen; // (keySize - 8) / 2; //cast(int) signature.length / 2;
-
-			switch (algo)
-			{
-				case JWTAlgorithm.ES256:
-					sigPartSize	= 32;
-					break;
-
-				case JWTAlgorithm.ES384:
-					sigPartSize	= 48;
-					break;
-
-				case JWTAlgorithm.ES512:
-					sigPartSize	= 66;
-					break;
-
-				default:
-					break;
-			}
+			int sigPartSize	= (keySize - 8) / 2;
 
 			ubyte * sigPointer = cast(ubyte *) signature.ptr;
 
@@ -362,7 +341,9 @@ version(UseOpenSSL) {
 			if (null == (sig.r = BN_bin2bn(sigPointer, sigPartSize, sig.r)))
 				throw new Exception("Can't decode ECDSA signature.");
 
-			if (null == (sig.s = BN_bin2bn(sigPointer + sigPartSize, sigPartSize, sig.s)))
+			int remaining	= cast(int) signature.length - sigPartSize;
+
+			if (null == (sig.s = BN_bin2bn(sigPointer + sigPartSize, remaining, sig.s)))
 				throw new Exception("Can't decode ECDSA signature.");
 
 			int ret =  ECDSA_do_verify(hash, hashLen, sig, eckey);
@@ -381,17 +362,17 @@ version(UseOpenSSL) {
 			case JWTAlgorithm.RS256: {
 				ubyte[] hash = new ubyte[SHA256_DIGEST_LENGTH];
 				SHA256(cast(const(ubyte)*)signing_input.ptr, signing_input.length, hash.ptr);
-				return verify_rs(hash.ptr, NID_sha256, 256, SHA256_DIGEST_LENGTH);
+				return verify_rs(hash.ptr, NID_sha256, SHA256_DIGEST_LENGTH);
 			}
 			case JWTAlgorithm.RS384: {
 				ubyte[] hash = new ubyte[SHA384_DIGEST_LENGTH];
 				SHA384(cast(const(ubyte)*)signing_input.ptr, signing_input.length, hash.ptr);
-				return verify_rs(hash.ptr, NID_sha384, 384, SHA384_DIGEST_LENGTH);
+				return verify_rs(hash.ptr, NID_sha384, SHA384_DIGEST_LENGTH);
 			}
 			case JWTAlgorithm.RS512: {
 				ubyte[] hash = new ubyte[SHA512_DIGEST_LENGTH];
 				SHA512(cast(const(ubyte)*)signing_input.ptr, signing_input.length, hash.ptr);
-				return verify_rs(hash.ptr, NID_sha512, 512, SHA512_DIGEST_LENGTH);
+				return verify_rs(hash.ptr, NID_sha512, SHA512_DIGEST_LENGTH);
 			}
 
 			case JWTAlgorithm.ES256:{
