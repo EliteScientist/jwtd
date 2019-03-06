@@ -15,7 +15,7 @@
       "name": "openssl",
       "targetType": "library",
       "dependencies": {
-        "openssl": "~>2.0.0+1.1.0h"
+        "openssl": "~>1.1.6+1.0.1g"
       },
       "versions": [ "UseOpenSSL" ]
     },
@@ -37,7 +37,7 @@
       "mainSourceFile": "source/app.d",
       "targetType": "executable",
       "dependencies": {
-        "openssl": "~>2.0.0+1.1.0h"
+        "openssl": "~>1.1.6+1.0.1g"
       },
       "versions": [ "UseOpenSSL" ]
     },
