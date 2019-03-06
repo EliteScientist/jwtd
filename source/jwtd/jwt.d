@@ -97,6 +97,27 @@ JSONValue decode(string token, string key) {
 	return decode(token, (ref _) => key);
 }
 
+JSONValue decodeHeader(string token)
+{
+	if (count(token, ".") < 1)
+		throw new VerifyException("Token is incorrect.");
+
+	string[] tokenParts = split(token, ".");
+
+	JSONValue header;
+
+	try 
+	{
+		header = parseJSON(urlsafeB64Decode(tokenParts[0]));
+	} 
+	catch(Exception e) 
+	{
+		throw new VerifyException("Header is incorrect.");
+	}
+
+	return header;
+}
+
 /**
   full version where the key is provided after decoding the JOSE header
 */
