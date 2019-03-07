@@ -90,11 +90,16 @@ unittest {
 	encode(payload, public256, JWTAlgorithm.HS256, header_fields);
 }
 
+
+JSONValue decode(string token, string key) 
+{
+	return decode(token, key, false);
+}
 /**
   simple version that knows which key was used to encode the token
 */
-JSONValue decode(string token, string key) {
-	return decode(token, (ref _) => key);
+JSONValue decode(string token, string key, bool requireSecuredToken) {
+	return decode(token, (ref _) => key, requireSecuredToken);
 }
 
 JSONValue decodeHeader(string token)
@@ -121,7 +126,7 @@ JSONValue decodeHeader(string token)
 /**
   full version where the key is provided after decoding the JOSE header
 */
-JSONValue decode(string token, string delegate(ref JSONValue jose) lazyKey) {
+JSONValue decode(string token, string delegate(ref JSONValue jose) lazyKey, bool requireSecuredToken) {
 	import std.algorithm : count;
 	import std.conv : to;
 	import std.uni : toUpper;
@@ -145,6 +150,9 @@ JSONValue decode(string token, string delegate(ref JSONValue jose) lazyKey) {
 	} catch(Exception e) {
 		throw new VerifyException("Algorithm is incorrect.");
 	}
+
+	if (requireSecuredToken && alg == JWTAlgorithm.NONE)
+		throw new VerifyException("Invalid Token: Security is None and Security is Required.");
 
 	if (auto typ = ("typ" in header)) {
 		string typ_str = typ.str();
