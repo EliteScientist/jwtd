@@ -63,7 +63,7 @@ string encode(in ubyte[] payload, string key, JWTAlgorithm algo = JWTAlgorithm.H
 	import std.functional : memoize;
 
 	auto getEncodedHeader(JWTAlgorithm algo, JSONValue fields) {
-		if(fields.type == JSON_TYPE.NULL)
+		if(fields.type == JSONType.null_)
 			fields = (JSONValue[string]).init;
 		fields.object["alg"] = cast(string)algo;
 		fields.object["typ"] = "JWT";
@@ -85,22 +85,51 @@ unittest {
 
 	// Code coverage for when header_fields is NULL type
 	auto header_fields = JSONValue();
-	assert(header_fields.type == JSON_TYPE.NULL);
+	assert(header_fields.type == JSONType.null_);
     auto payload = JSONValue([ "a" : "b" ]);
 	encode(payload, public256, JWTAlgorithm.HS256, header_fields);
 }
 
+
+JSONValue decode(string token, string key) 
+{
+	return decode(token, key, [JWTAlgorithm.NONE, JWTAlgorithm.HS256, JWTAlgorithm.HS256,
+								JWTAlgorithm.HS384, JWTAlgorithm.HS512, JWTAlgorithm.RS256, 
+								JWTAlgorithm.RS384, JWTAlgorithm.RS512, JWTAlgorithm.ES256,
+								JWTAlgorithm.ES256K, JWTAlgorithm.ES384, JWTAlgorithm.ES512]);
+}
 /**
   simple version that knows which key was used to encode the token
 */
-JSONValue decode(string token, string key) {
-	return decode(token, (ref _) => key);
+JSONValue decode(string token, string key, JWTAlgorithm[] supportedAlgorithms) {
+	return decode(token, (ref _) => key, supportedAlgorithms);
+}
+
+JSONValue decodeHeader(string token)
+{
+	if (count(token, ".") < 1)
+		throw new VerifyException("Token is incorrect.");
+
+	string[] tokenParts = split(token, ".");
+
+	JSONValue header;
+
+	try 
+	{
+		header = parseJSON(urlsafeB64Decode(tokenParts[0]));
+	} 
+	catch(Exception e) 
+	{
+		throw new VerifyException("Header is incorrect.");
+	}
+
+	return header;
 }
 
 /**
   full version where the key is provided after decoding the JOSE header
 */
-JSONValue decode(string token, string delegate(ref JSONValue jose) lazyKey) {
+JSONValue decode(string token, string delegate(ref JSONValue jose) lazyKey, JWTAlgorithm[] supportedAlgorithms) {
 	import std.algorithm : count;
 	import std.conv : to;
 	import std.uni : toUpper;
@@ -124,6 +153,11 @@ JSONValue decode(string token, string delegate(ref JSONValue jose) lazyKey) {
 	} catch(Exception e) {
 		throw new VerifyException("Algorithm is incorrect.");
 	}
+
+	import std.algorithm.searching;
+
+	if (!canFind(supportedAlgorithms, alg))
+		throw new VerifyException("Invalid Token: Security is None and Security is Required.");
 
 	if (auto typ = ("typ" in header)) {
 		string typ_str = typ.str();
